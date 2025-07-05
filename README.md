@@ -86,7 +86,7 @@ defmodule MyApp.User do
     field :name, :string
     field :age, :integer
     field :bio, :string
-    field :settings, :map  # JSONB column
+    field :activated_at, :utc_datetime
     field :roles, {:array, :string}
     field :status, Ecto.Enum, values: [:active, :inactive, :pending]
     
@@ -100,7 +100,7 @@ defmodule MyApp.User do
   @doc false
   def changeset(user, attrs) do
     user
-    |> cast(attrs, [:email, :name, :age, :bio, :settings, :roles, :status, :company_id])
+    |> cast(attrs, [:email, :name, :age, :bio, :activated_at, :roles, :status, :company_id])
     |> validate_required([:email, :name])
     |> validate_format(:email, ~r/@/)
     |> unique_constraint(:email)
@@ -134,12 +134,35 @@ The generator supports all common PostgreSQL types including:
 - **Basic Types**: integer, text, boolean, decimal, float
 - **Date/Time**: date, time, timestamp, timestamptz
 - **UUID**: uuid → :binary_id
-- **JSON**: json, jsonb → :map
+- **JSON**: json, jsonb → (requires manual type specification, see below)
 - **Arrays**: integer[], text[] → {:array, :type}
 - **Enums**: PostgreSQL enums → Ecto.Enum
 - **PostGIS**: geometry, geography types
 - **Network**: inet, cidr, macaddr
 - **Special**: money, interval, tsvector
+
+## JSON/JSONB Fields
+
+PostgreSQL's JSON and JSONB columns can store various data structures (objects, arrays, primitives), making it impossible to automatically determine the correct Ecto type. Therefore, these fields are commented out in generated schemas with examples to guide you:
+
+```elixir
+# JSONB field - requires manual type specification based on your data:
+# field :contact_ids, :map                    # For JSON objects: {"key": "value"}
+# field :contact_ids, {:array, :string}       # For string arrays: ["value1", "value2"]
+# field :contact_ids, {:array, :integer}      # For integer arrays: [1, 2, 3]
+# field :contact_ids, {:array, :map}          # For object arrays: [{"id": 1}, {"id": 2}]
+```
+
+You'll need to:
+1. Uncomment the field
+2. Choose the appropriate type based on your actual data structure
+3. Update the changeset function to include the field
+
+Common patterns:
+- Use `:map` for JSON objects/documents
+- Use `{:array, :string}` for arrays of UUIDs or strings
+- Use `{:array, :integer}` for arrays of numeric IDs
+- Use `{:array, :map}` for arrays of objects
 
 ## Requirements
 

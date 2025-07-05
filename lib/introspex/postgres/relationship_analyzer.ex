@@ -141,7 +141,7 @@ defmodule Introspex.Postgres.RelationshipAnalyzer do
     # Check if it has exactly 2 foreign keys
     has_two_fks = length(foreign_keys) == 2
 
-    # Check if most columns are either foreign keys, primary keys, or timestamps
+    # Check if most columns are either foreign keys, primary keys, id, or common timestamps
     non_meta_columns =
       Enum.reject(columns, fn col ->
         col.name in ["id", "inserted_at", "updated_at", "created_at"] or
@@ -155,35 +155,12 @@ defmodule Introspex.Postgres.RelationshipAnalyzer do
   # Helper functions for naming conventions
 
   defp singularize(table_name) do
-    # Simple singularization - in production, use a proper inflector
-    cond do
-      String.ends_with?(table_name, "ies") ->
-        String.replace_suffix(table_name, "ies", "y")
-
-      String.ends_with?(table_name, "es") ->
-        String.replace_suffix(table_name, "es", "")
-
-      String.ends_with?(table_name, "s") ->
-        String.replace_suffix(table_name, "s", "")
-
-      true ->
-        table_name
-    end
-    |> String.to_atom()
+    # Use table name as-is to avoid language-specific assumptions
+    String.to_atom(table_name)
   end
 
   defp pluralize(table_name) do
-    # Simple pluralization - in production, use a proper inflector
-    cond do
-      String.ends_with?(table_name, "y") ->
-        String.replace_suffix(table_name, "y", "ies")
-
-      String.ends_with?(table_name, "s") ->
-        table_name
-
-      true ->
-        table_name <> "s"
-    end
-    |> String.to_atom()
+    # Use table name as-is to avoid language-specific assumptions
+    String.to_atom(table_name)
   end
 end

@@ -864,5 +864,262 @@ defmodule Introspex.SchemaBuilderTest do
       assert result =~ "field :inserted_at, :naive_datetime"
       assert result =~ "field :updated_at, :naive_datetime"
     end
+
+    test "handles PostGIS Geography fields correctly" do
+      table_info = %{
+        table: %{name: "locations", type: :table, comment: nil},
+        columns: [
+          %{
+            name: "id",
+            data_type: "uuid",
+            not_null: true,
+            default: "gen_random_uuid()",
+            comment: nil,
+            position: 1,
+            enum_values: nil
+          },
+          %{
+            name: "name",
+            data_type: "varchar",
+            not_null: true,
+            default: nil,
+            comment: nil,
+            position: 2,
+            enum_values: nil
+          },
+          %{
+            name: "location_geography",
+            data_type: "geography",
+            not_null: false,
+            default: nil,
+            comment: nil,
+            position: 3,
+            enum_values: nil
+          },
+          %{
+            name: "location_geometry",
+            data_type: "geometry",
+            not_null: false,
+            default: nil,
+            comment: nil,
+            position: 4,
+            enum_values: nil
+          }
+        ],
+        primary_keys: ["id"],
+        relationships: %{belongs_to: [], has_many: [], many_to_many: []},
+        unique_constraints: [],
+        check_constraints: [],
+        table_type: :table
+      }
+
+      result = SchemaBuilder.build_schema(table_info, "MyApp.Location")
+
+      # Should use Geo.PostGIS.Geometry for both geometry and geography types
+      assert result =~ "field :location_geography, Geo.PostGIS.Geometry"
+      assert result =~ "field :location_geometry, Geo.PostGIS.Geometry"
+      # Should not have the alias anymore
+      refute result =~ "alias Geo.PostGIS"
+    end
+
+    test "handles JSONB fields with array defaults" do
+      table_info = %{
+        table: %{name: "clients", type: :table, comment: nil},
+        columns: [
+          %{
+            name: "id",
+            data_type: "uuid",
+            not_null: true,
+            default: "gen_random_uuid()",
+            comment: nil,
+            position: 1,
+            enum_values: nil
+          },
+          %{
+            name: "name",
+            data_type: "varchar",
+            not_null: true,
+            default: nil,
+            comment: nil,
+            position: 2,
+            enum_values: nil
+          },
+          %{
+            name: "linked_client_ids",
+            data_type: "jsonb",
+            not_null: true,
+            default: "jsonb_build_array()",
+            comment: nil,
+            position: 3,
+            enum_values: nil
+          },
+          %{
+            name: "tags",
+            data_type: "jsonb",
+            not_null: false,
+            default: "'[]'::jsonb",
+            comment: nil,
+            position: 4,
+            enum_values: nil
+          },
+          %{
+            name: "metadata",
+            data_type: "jsonb",
+            not_null: false,
+            default: "'{}'::jsonb",
+            comment: nil,
+            position: 5,
+            enum_values: nil
+          },
+          %{
+            name: "settings",
+            data_type: "jsonb",
+            not_null: false,
+            default: nil,
+            comment: nil,
+            position: 6,
+            enum_values: nil
+          }
+        ],
+        primary_keys: ["id"],
+        relationships: %{belongs_to: [], has_many: [], many_to_many: []},
+        unique_constraints: [],
+        check_constraints: [],
+        table_type: :table
+      }
+
+      result = SchemaBuilder.build_schema(table_info, "MyApp.Client")
+
+      # All JSONB fields should be commented out with manual instructions
+      assert result =~ "# JSONB field - requires manual type specification based on your data:"
+      assert result =~ "# field :linked_client_ids"
+      assert result =~ "# field :tags"
+      assert result =~ "# field :metadata"
+      assert result =~ "# field :settings"
+    end
+
+    test "handles schemas with many fields without truncation" do
+      # Generate 100 fields to test truncation handling
+      many_columns =
+        Enum.map(1..100, fn i ->
+          %{
+            name: "field_#{i}",
+            data_type: "varchar",
+            not_null: false,
+            default: nil,
+            comment: nil,
+            position: i + 1,
+            enum_values: nil
+          }
+        end)
+
+      columns =
+        [
+          %{
+            name: "id",
+            data_type: "uuid",
+            not_null: true,
+            default: "gen_random_uuid()",
+            comment: nil,
+            position: 1,
+            enum_values: nil
+          }
+        ] ++ many_columns
+
+      table_info = %{
+        table: %{name: "large_table", type: :table, comment: nil},
+        columns: columns,
+        primary_keys: ["id"],
+        relationships: %{belongs_to: [], has_many: [], many_to_many: []},
+        unique_constraints: [],
+        check_constraints: [],
+        table_type: :table
+      }
+
+      result = SchemaBuilder.build_schema(table_info, "MyApp.LargeTable")
+
+      # The cast call should include all fields without truncation (no "...")
+      refute result =~ "..."
+
+      # Check that all fields are present
+      assert result =~ "field :field_1, :string"
+      assert result =~ "field :field_50, :string"
+      assert result =~ "field :field_100, :string"
+
+      # Check that the cast includes all fields
+      assert result =~ ":field_1"
+      assert result =~ ":field_100"
+    end
+
+    test "handles various JSONB array scenarios correctly" do
+      table_info = %{
+        table: %{name: "todos", type: :table, comment: nil},
+        columns: [
+          %{
+            name: "id",
+            data_type: "uuid",
+            not_null: true,
+            default: "gen_random_uuid()",
+            comment: nil,
+            position: 1,
+            enum_values: nil
+          },
+          # Array of tag IDs
+          %{
+            name: "tag_ids",
+            data_type: "jsonb",
+            not_null: false,
+            default: "jsonb_build_array()",
+            comment: nil,
+            position: 2,
+            enum_values: nil
+          },
+          # Array of category names
+          %{
+            name: "category_names",
+            data_type: "jsonb",
+            not_null: false,
+            default: "jsonb_build_array()",
+            comment: nil,
+            position: 3,
+            enum_values: nil
+          },
+          # Array of attachment objects
+          %{
+            name: "attachments",
+            data_type: "jsonb",
+            not_null: false,
+            default: "jsonb_build_array()",
+            comment: nil,
+            position: 4,
+            enum_values: nil
+          },
+          # Non-array JSONB (object for metadata)
+          %{
+            name: "metadata",
+            data_type: "jsonb",
+            not_null: false,
+            default: nil,
+            comment: nil,
+            position: 5,
+            enum_values: nil
+          }
+        ],
+        primary_keys: ["id"],
+        relationships: %{belongs_to: [], has_many: [], many_to_many: []},
+        unique_constraints: [],
+        check_constraints: [],
+        table_type: :table
+      }
+
+      result = SchemaBuilder.build_schema(table_info, "MyApp.Todo")
+
+      # All JSONB fields should be commented out with manual instructions
+      assert result =~ "# JSONB field - requires manual type specification based on your data:"
+      assert result =~ "# field :tag_ids"
+      assert result =~ "# field :category_names"
+      assert result =~ "# field :attachments"
+      assert result =~ "# field :metadata"
+    end
   end
 end

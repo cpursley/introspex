@@ -44,9 +44,9 @@ defmodule Introspex.Postgres.TypeMapperTest do
       assert TypeMapper.map_type("time") == :time
     end
 
-    test "maps JSON types correctly" do
-      assert TypeMapper.map_type("json") == :map
-      assert TypeMapper.map_type("jsonb") == :map
+    test "maps JSON types to special markers" do
+      assert TypeMapper.map_type("json") == :json_requires_manual_type
+      assert TypeMapper.map_type("jsonb") == :jsonb_requires_manual_type
     end
 
     test "maps array types correctly" do
@@ -66,6 +66,35 @@ defmodule Introspex.Postgres.TypeMapperTest do
       assert TypeMapper.map_type("geometry") == {:geometry, "Geometry"}
       assert TypeMapper.map_type("geography") == {:geography, "Geography"}
       assert TypeMapper.map_type("point") == {:geometry, "Point"}
+    end
+
+    test "maps JSONB to special marker for manual intervention" do
+      # All JSONB fields map to special marker regardless of defaults or field names
+      assert TypeMapper.map_type("jsonb", nil, default: "jsonb_build_array()") ==
+               :jsonb_requires_manual_type
+
+      assert TypeMapper.map_type("jsonb", nil, default: "'[]'::jsonb") ==
+               :jsonb_requires_manual_type
+
+      assert TypeMapper.map_type("jsonb", nil, default: "array_to_json(ARRAY[]::text[])") ==
+               :jsonb_requires_manual_type
+
+      assert TypeMapper.map_type("jsonb", nil, default: "'{}'::jsonb") ==
+               :jsonb_requires_manual_type
+
+      assert TypeMapper.map_type("jsonb", nil, default: nil) == :jsonb_requires_manual_type
+      assert TypeMapper.map_type("jsonb") == :jsonb_requires_manual_type
+
+      # Field names don't affect the type
+      assert TypeMapper.map_type("jsonb", nil,
+               default: "jsonb_build_array()",
+               field_name: "tag_ids"
+             ) == :jsonb_requires_manual_type
+
+      assert TypeMapper.map_type("jsonb", nil,
+               default: "jsonb_build_array()",
+               field_name: "items"
+             ) == :jsonb_requires_manual_type
     end
 
     test "falls back to string for unknown types" do
@@ -92,7 +121,7 @@ defmodule Introspex.Postgres.TypeMapperTest do
 
     test "converts PostGIS types to string" do
       assert TypeMapper.type_to_string({:geometry, "Point"}) == "Geo.PostGIS.Geometry"
-      assert TypeMapper.type_to_string({:geography, "Polygon"}) == "Geo.PostGIS.Geography"
+      assert TypeMapper.type_to_string({:geography, "Polygon"}) == "Geo.PostGIS.Geometry"
     end
   end
 

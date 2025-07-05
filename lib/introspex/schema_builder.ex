@@ -30,7 +30,9 @@ defmodule Introspex.SchemaBuilder do
     # Check if we have PostGIS types
     has_postgis =
       Enum.any?(columns, fn col ->
-        TypeMapper.requires_special_import?(TypeMapper.map_type(col.data_type))
+        TypeMapper.requires_special_import?(
+          TypeMapper.map_type(col.data_type, nil, default: col.default)
+        )
       end)
 
     # Detect if we can use Ecto's timestamps() macro
@@ -120,10 +122,12 @@ defmodule Introspex.SchemaBuilder do
     """
   end
 
-  defp build_imports(has_changeset, has_postgis) do
+  defp build_imports(has_changeset, _has_postgis) do
     imports = []
     imports = if has_changeset, do: ["import Ecto.Changeset" | imports], else: imports
-    imports = if has_postgis, do: ["alias Geo.PostGIS.Geometry" | imports], else: imports
+
+    # If we have PostGIS types, we don't need to alias - just use the full module names
+    # This avoids any confusion about which types are available
 
     if length(imports) > 0 do
       Enum.join(imports, "\n  ")
@@ -231,27 +235,45 @@ defmodule Introspex.SchemaBuilder do
       name: name,
       data_type: data_type,
       not_null: _not_null,
-      default: _default,
+      default: default,
       comment: _comment,
       enum_values: enum_values
     } = column
 
-    type = TypeMapper.map_type(data_type, enum_values)
-    type_string = TypeMapper.type_to_string(type)
+    type = TypeMapper.map_type(data_type, enum_values, default: default)
 
     # Don't add primary key fields if they're named "id"
     if name == "id" do
       nil
     else
-      opts = []
+      case type do
+        :json_requires_manual_type ->
+          """
+          # JSON field - requires manual type specification:
+          # field :#{name}, :map                    # For JSON objects
+          """
 
-      # Let PostgreSQL handle all defaults - don't include them in Ecto schema
-      # This prevents conflicts and ensures database defaults work as intended
+        :jsonb_requires_manual_type ->
+          """
+          # JSONB field - requires manual type specification based on your data:
+          # field :#{name}, :map                    # For JSON objects: {"key": "value"}
+          # field :#{name}, {:array, :string}       # For string arrays: ["value1", "value2"]
+          # field :#{name}, {:array, :integer}      # For integer arrays: [1, 2, 3]
+          # field :#{name}, {:array, :map}          # For object arrays: [{"id": 1}, {"id": 2}]
+          """
 
-      if length(opts) > 0 do
-        "field :#{name}, #{type_string}, #{Enum.join(opts, ", ")}"
-      else
-        "field :#{name}, #{type_string}"
+        _ ->
+          type_string = TypeMapper.type_to_string(type)
+          opts = []
+
+          # Let PostgreSQL handle all defaults - don't include them in Ecto schema
+          # This prevents conflicts and ensures database defaults work as intended
+
+          if length(opts) > 0 do
+            "field :#{name}, #{type_string}, #{Enum.join(opts, ", ")}"
+          else
+            "field :#{name}, #{type_string}"
+          end
       end
     end
   end
@@ -323,8 +345,8 @@ defmodule Introspex.SchemaBuilder do
       @doc false
       def changeset(#{String.downcase(get_struct_name())}, attrs) do
         #{String.downcase(get_struct_name())}
-        |> cast(attrs, #{inspect(all_cast_fields)})
-        #{if length(required_fields) > 0, do: "|> validate_required(#{inspect(required_fields)})", else: ""}
+        |> cast(attrs, #{inspect(all_cast_fields, limit: :infinity)})
+        #{if length(required_fields) > 0, do: "|> validate_required(#{inspect(required_fields, limit: :infinity)})", else: ""}
         #{build_validations(fields)}
         #{build_unique_constraints(unique_constraints)}
         #{build_foreign_key_constraints(relationships.belongs_to)}
@@ -341,9 +363,6 @@ defmodule Introspex.SchemaBuilder do
 
   defp build_field_validation(field) do
     cond do
-      String.contains?(field.name, "email") ->
-        "|> validate_format(:#{field.name}, ~r/@/)"
-
       field.data_type in ["integer", "bigint", "smallint"] ->
         # TODO: Parse check constraints for number validations
         nil
@@ -360,7 +379,7 @@ defmodule Introspex.SchemaBuilder do
       if length(constraint.columns) == 1 do
         "|> unique_constraint(:#{hd(constraint.columns)})"
       else
-        "|> unique_constraint(#{inspect(Enum.map(constraint.columns, &String.to_atom/1))}, name: :#{constraint.constraint_name})"
+        "|> unique_constraint(#{inspect(Enum.map(constraint.columns, &String.to_atom/1), limit: :infinity)}, name: :#{constraint.constraint_name})"
       end
     end)
     |> Enum.join("\n    ")

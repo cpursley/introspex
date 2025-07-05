@@ -6,7 +6,7 @@ defmodule Introspex.Postgres.TypeMapper do
   @doc """
   Maps a PostgreSQL data type string to an Ecto type atom or tuple.
   """
-  def map_type(postgres_type, enum_values \\ nil) do
+  def map_type(postgres_type, enum_values \\ nil, _opts \\ []) do
     # Clean up the type string (remove size constraints, etc.)
     base_type =
       postgres_type
@@ -146,10 +146,10 @@ defmodule Introspex.Postgres.TypeMapper do
 
       # JSON types
       "json" ->
-        :map
+        :json_requires_manual_type
 
       "jsonb" ->
-        :map
+        :jsonb_requires_manual_type
 
       # Array types
       type ->
@@ -286,7 +286,15 @@ defmodule Introspex.Postgres.TypeMapper do
         "Geo.PostGIS.Geometry"
 
       {:geography, _geog_type} ->
-        "Geo.PostGIS.Geography"
+        "Geo.PostGIS.Geometry"
+
+      :json_requires_manual_type ->
+        # This shouldn't be called since we handle it specially in SchemaBuilder
+        ":map"
+
+      :jsonb_requires_manual_type ->
+        # This shouldn't be called since we handle it specially in SchemaBuilder
+        ":map"
 
       atom when is_atom(atom) ->
         ":#{atom}"
@@ -296,6 +304,7 @@ defmodule Introspex.Postgres.TypeMapper do
   @doc """
   Determines if a field is an Ecto timestamp field.
   Ecto specifically expects "inserted_at" and "updated_at" for the timestamps() macro.
+  This is not domain-specific but rather an Ecto framework convention.
   """
   def ecto_timestamp_field?(field_name) do
     field_name in ["inserted_at", "updated_at"]
