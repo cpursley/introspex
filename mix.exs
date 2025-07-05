@@ -1,36 +1,84 @@
-defmodule EctoGenerator.Mixfile do
+defmodule Introspex.MixProject do
   use Mix.Project
 
-  def project do
-    [app: :ecto_generator,
-     version: "9.0.0",
-     elixir: "~> 1.3",
-     package: package(),
-     build_embedded: Mix.env == :prod,
-     start_permanent: Mix.env == :prod,
-     deps: deps()]
-  end
+  @version "0.1.0"
+  @source_url "https://github.com/cpursley/introspex"
 
-  # Configuration for the OTP application
-  #
-  # Type "mix help compile.app" for more information
-  def application do
-    [applications: [:logger]]
-  end
-  
-  defp deps do
+  def project do
     [
-       {:ex_doc, ">= 0.0.0", only: :dev},
+      app: :introspex,
+      version: @version,
+      elixir: "~> 1.14",
+      elixirc_paths: elixirc_paths(Mix.env()),
+      start_permanent: Mix.env() == :prod,
+      deps: deps(),
+      aliases: aliases(),
+      test_coverage: [tool: ExCoveralls],
+      package: package(),
+      name: "Introspex",
+      description: "Generate Ecto schemas from existing PostgreSQL database structures",
+      source_url: @source_url,
+      homepage_url: @source_url,
+      docs: docs()
     ]
   end
-  
+
+  def application do
+    [
+      extra_applications: [:logger]
+    ]
+  end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
+
+  defp deps do
+    [
+      {:ecto, "~> 3.10"},
+      {:postgrex, "~> 0.17"},
+      {:jason, "~> 1.4"},
+
+      # Dev & Test
+      {:ex_doc, "~> 0.31.1", only: :dev, runtime: false},
+      {:sobelow, "~> 0.12", only: [:dev, :test], runtime: false},
+      {:credo, "~> 1.7.3", only: [:dev, :test], runtime: false},
+      {:excoveralls, "~> 0.10", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
+    ]
+  end
+
+  defp aliases do
+    [
+      # Run tests and check coverage
+      test: ["test", "coveralls"],
+      # Run to check the quality of your code
+      quality: [
+        "format --check-formatted",
+        "sobelow --config",
+        "credo --only warning"
+      ]
+    ]
+  end
+
   defp package do
-    [# These are the default files included in the package
-      name: :ecto_generator,
-      description: "Generate Ecto schemas from existing database in Phoenix - Elixir",
-      files: ["lib", "config", "mix.exs", "README*"],
-      maintainers: ["Bagu Alexandru Bogdan"],
+    [
+      name: :introspex,
+      files: ~w(lib .formatter.exs mix.exs README* LICENSE* CHANGELOG*),
+      maintainers: ["Chase Pursley"],
       licenses: ["MIT"],
-      links: %{"GitHub" => "https://github.com/alexandrubagu/ecto_generator", "Docs" => "https://github.com/alexandrubagu/ecto_generator", "Website" => "http://www.alexandrubagu.info" }]
+      links: %{
+        "GitHub" => @source_url,
+        "Changelog" => "#{@source_url}/blob/main/CHANGELOG.md"
+      }
+    ]
+  end
+
+  defp docs do
+    [
+      main: "readme",
+      source_ref: "v#{@version}",
+      source_url: @source_url,
+      extras: ["README.md", "CHANGELOG.md"]
+    ]
   end
 end
