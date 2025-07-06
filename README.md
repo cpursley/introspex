@@ -2,13 +2,15 @@
 
 Generate Ecto schemas from existing PostgreSQL databases - including support for tables, views, materialized views, associations, and modern Ecto features.
 
+**Perfect for migrating existing applications to Elixir** - Whether you're moving from Rails, Django, or any other framework with an existing PostgreSQL database or are using an external migration tool (i.e., not ecto migrations), Introspex helps you quickly generate Elixir/Ecto schemas that match your current database structure.
+
 ## Installation
 
 Add `introspex` to your list of dependencies in `mix.exs`:
 
 ```elixir
 def deps do
-  [{:introspex, "~> 0.1.0"}]
+  [{:introspex, "~> 0.2.0", only: :dev}]
 end
 ```
 
@@ -57,6 +59,49 @@ Preview what will be generated without creating files:
 mix ecto.gen.schema --repo MyApp.Repo --dry-run
 ```
 
+### Phoenix Contexts
+
+Generate schemas organized into Phoenix contexts. When using `--context-tables`, only the specified tables will be generated:
+
+```bash
+# Generate ONLY users and profiles tables in the Accounts context
+mix ecto.gen.schema --repo MyApp.Repo --context Accounts --context-tables users,profiles
+
+# Generate ONLY posts, comments, and tags tables in the Blog context
+mix ecto.gen.schema --repo MyApp.Repo --context Blog --context-tables posts,comments,tags
+```
+
+When using contexts:
+- A context module is generated at `lib/my_app/accounts.ex` with CRUD functions
+- Schemas are organized into subdirectories:
+  - `lib/my_app/accounts/user.ex` for `MyApp.Accounts.User`
+  - `lib/my_app/accounts/profile.ex` for `MyApp.Accounts.Profile`
+- Views and materialized views only get read operations (list and get) in the context module
+- Duplicate function names are automatically prevented when tables have the same singular form (e.g., `user_account` and `user_accounts`)
+
+### Custom Paths
+
+Use the `--path` option to organize schemas in custom directory structures. Path segments are reflected in module names:
+
+```bash
+# Simple path - generates Services.Queries.Property module
+mix ecto.gen.schema --repo Services.Repo --path queries --table property
+
+# Path with underscores - generates MyApp.SomePath.User module  
+mix ecto.gen.schema --repo MyApp.Repo --path some_path --table users
+
+# Multiple path segments - generates MyApp.Admin.Reports.Metric module
+mix ecto.gen.schema --repo MyApp.Repo --path admin/reports --table metrics
+```
+
+Combine with contexts for organized domain structure:
+
+```bash
+# Generates lib/my_app/queries/accounts.ex and lib/my_app/queries/accounts/user.ex
+# Modules: MyApp.Queries.Accounts and MyApp.Queries.Accounts.User
+mix ecto.gen.schema --repo MyApp.Repo --path queries --context Accounts --context-tables users,profiles
+```
+
 ## Options
 
 - `--repo` - The repository module (required)
@@ -70,6 +115,9 @@ mix ecto.gen.schema --repo MyApp.Repo --dry-run
 - `--module-prefix` - Prefix for generated module names (default: app name)
 - `--output-dir` - Output directory for schema files (default: lib/app_name)
 - `--dry-run` - Preview what would be generated without writing files
+- `--context` - Phoenix context name for organizing related schemas
+- `--context-tables` - Comma-separated list of tables to include in the context (when specified, only these tables will be generated)
+- `--path` - Custom path segment(s) to insert in the output directory (e.g., "queries" results in lib/app_name/queries/...)
 
 ## Example Output
 
@@ -140,6 +188,24 @@ The generator supports all common PostgreSQL types including:
 - **PostGIS**: geometry, geography types
 - **Network**: inet, cidr, macaddr
 - **Special**: money, interval, tsvector
+
+## Mixed Foreign Key Types
+
+When your database uses a mix of UUID and integer primary keys, Introspex automatically handles the type declarations. For example, if a table with UUID primary keys has a foreign key to a table with integer primary keys, the generator will add the appropriate `type: :id` option:
+
+```elixir
+@primary_key {:id, :binary_id, autogenerate: false}
+@foreign_key_type :binary_id
+
+schema "organizations" do
+  # This foreign key is an integer, so type: :id is added automatically
+  belongs_to :organization_role, MyApp.OrganizationRole, type: :id
+  
+  # These foreign keys are UUIDs, so they use the default @foreign_key_type
+  belongs_to :user, MyApp.User
+  belongs_to :account, MyApp.Account
+end
+```
 
 ## JSON/JSONB Fields
 

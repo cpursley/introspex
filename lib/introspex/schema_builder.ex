@@ -22,6 +22,7 @@ defmodule Introspex.SchemaBuilder do
     binary_id = Keyword.get(opts, :binary_id, false)
     skip_timestamps = Keyword.get(opts, :skip_timestamps, false)
     _app_name = Keyword.get(opts, :app_name, "MyApp")
+    module_prefix = Keyword.get(opts, :module_prefix)
 
     # Auto-detect if primary key is UUID
     primary_key_info = detect_primary_key_type(columns, primary_keys)
@@ -60,16 +61,18 @@ defmodule Introspex.SchemaBuilder do
 
     # Build the module
     schema_definition =
-      build_schema_definition(
-        table.name,
-        filtered_schema_fields,
-        primary_keys,
-        relationships,
-        binary_id,
-        has_timestamps,
-        table_type,
-        primary_key_info
-      )
+      build_schema_definition(%{
+        table_name: table.name,
+        fields: filtered_schema_fields,
+        primary_keys: primary_keys,
+        relationships: relationships,
+        binary_id: binary_id,
+        has_timestamps: has_timestamps,
+        table_type: table_type,
+        primary_key_info: primary_key_info,
+        module_prefix: module_prefix,
+        columns: columns
+      })
 
     changeset_definition =
       if table_type == :table do
@@ -115,7 +118,6 @@ defmodule Introspex.SchemaBuilder do
       use Ecto.Schema
       #{imports}
 
-      #{if table_type != :table, do: "  @schema_source_type :#{table_type}\n", else: ""}
       #{schema_definition}
       #{if changeset_definition, do: "\n" <> changeset_definition, else: ""}
     end
@@ -136,16 +138,18 @@ defmodule Introspex.SchemaBuilder do
     end
   end
 
-  defp build_schema_definition(
-         table_name,
-         fields,
-         primary_keys,
-         relationships,
-         binary_id,
-         has_timestamps,
-         table_type,
-         primary_key_info
-       ) do
+  defp build_schema_definition(%{
+         table_name: table_name,
+         fields: fields,
+         primary_keys: primary_keys,
+         relationships: relationships,
+         binary_id: binary_id,
+         has_timestamps: has_timestamps,
+         table_type: table_type,
+         primary_key_info: primary_key_info,
+         module_prefix: module_prefix,
+         columns: columns
+       }) do
     primary_key_config = build_primary_key_config(primary_keys, binary_id, primary_key_info)
 
     field_definitions =
@@ -155,7 +159,7 @@ defmodule Introspex.SchemaBuilder do
 
     association_definitions =
       if table_type == :table do
-        build_association_definitions(relationships)
+        build_association_definitions(relationships, module_prefix, columns, binary_id)
       else
         []
       end
@@ -166,7 +170,7 @@ defmodule Introspex.SchemaBuilder do
 
     """
     #{primary_key_config}
-      schema "#{table_name}" do
+      #{if table_type == :table, do: "schema \"#{table_name}\" do", else: "# This is a #{table_type} - queries will work but inserts/updates/deletes are not supported\n      schema \"#{table_name}\" do"}
         #{Enum.join(all_definitions, "\n    ")}
       end
     """
@@ -278,16 +282,23 @@ defmodule Introspex.SchemaBuilder do
     end
   end
 
-  defp build_association_definitions(relationships) do
-    belongs_to = Enum.map(Map.get(relationships, :belongs_to, []), &build_belongs_to/1)
-    has_many = Enum.map(Map.get(relationships, :has_many, []), &build_has_many/1)
-    has_one = Enum.map(Map.get(relationships, :has_one, []), &build_has_one/1)
-    many_to_many = Enum.map(Map.get(relationships, :many_to_many, []), &build_many_to_many/1)
+  defp build_association_definitions(relationships, module_prefix, columns, binary_id) do
+    belongs_to =
+      Enum.map(
+        Map.get(relationships, :belongs_to, []),
+        &build_belongs_to(&1, module_prefix, columns, binary_id)
+      )
+
+    has_many = Enum.map(Map.get(relationships, :has_many, []), &build_has_many(&1, module_prefix))
+    has_one = Enum.map(Map.get(relationships, :has_one, []), &build_has_one(&1, module_prefix))
+
+    many_to_many =
+      Enum.map(Map.get(relationships, :many_to_many, []), &build_many_to_many(&1, module_prefix))
 
     belongs_to ++ has_many ++ has_one ++ many_to_many
   end
 
-  defp build_belongs_to(assoc) do
+  defp build_belongs_to(assoc, module_prefix, columns, binary_id) do
     opts = []
 
     opts =
@@ -297,9 +308,21 @@ defmodule Introspex.SchemaBuilder do
 
     opts = if assoc.references != :id, do: ["references: :#{assoc.references}" | opts], else: opts
 
-    opts = if Map.get(assoc, :type), do: ["type: :#{assoc.type}" | opts], else: opts
+    # Check if we need to specify the type based on the foreign key column type
+    fk_column = Enum.find(columns, &(&1.name == to_string(assoc.foreign_key)))
 
-    module_name = if Map.get(assoc, :module), do: assoc.module, else: table_to_module(assoc.table)
+    opts =
+      if binary_id && fk_column &&
+           fk_column.data_type in ["integer", "bigint", "int4", "int8", "smallint", "int2"] do
+        ["type: :id" | opts]
+      else
+        if Map.get(assoc, :type), do: ["type: :#{assoc.type}" | opts], else: opts
+      end
+
+    module_name =
+      if Map.get(assoc, :module),
+        do: assoc.module,
+        else: table_to_module(assoc.table, module_prefix)
 
     if length(opts) > 0 do
       "belongs_to :#{assoc.field}, #{module_name}, #{Enum.join(opts, ", ")}"
@@ -308,18 +331,18 @@ defmodule Introspex.SchemaBuilder do
     end
   end
 
-  defp build_has_many(assoc) do
-    module_name = table_to_module(assoc.table)
+  defp build_has_many(assoc, module_prefix) do
+    module_name = table_to_module(assoc.table, module_prefix)
     "has_many :#{assoc.field}, #{module_name}, foreign_key: :#{assoc.foreign_key}"
   end
 
-  defp build_has_one(assoc) do
-    module_name = table_to_module(assoc.table)
+  defp build_has_one(assoc, module_prefix) do
+    module_name = table_to_module(assoc.table, module_prefix)
     "has_one :#{assoc.field}, #{module_name}, foreign_key: :#{assoc.foreign_key}"
   end
 
-  defp build_many_to_many(assoc) do
-    module_name = table_to_module(assoc.table)
+  defp build_many_to_many(assoc, module_prefix) do
+    module_name = table_to_module(assoc.table, module_prefix)
     "many_to_many :#{assoc.field}, #{module_name}, join_through: \"#{assoc.join_through}\""
   end
 
@@ -393,9 +416,13 @@ defmodule Introspex.SchemaBuilder do
     |> Enum.join("\n    ")
   end
 
-  defp table_to_module(table_name) do
-    # This should match the module naming convention used in your app
-    "__MODULE__." <> Macro.camelize(table_name)
+  defp table_to_module(table_name, module_prefix) do
+    # If module_prefix is provided, prepend it to the module name
+    if module_prefix do
+      "#{module_prefix}.#{Macro.camelize(table_name)}"
+    else
+      Macro.camelize(table_name)
+    end
   end
 
   defp get_struct_name do

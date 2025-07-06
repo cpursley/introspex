@@ -74,7 +74,13 @@ defmodule Mix.Tasks.Ecto.Gen.SchemaTest do
         "Custom",
         "--output-dir",
         "lib/custom",
-        "--dry-run"
+        "--dry-run",
+        "--context",
+        "Accounts",
+        "--context-tables",
+        "users,profiles",
+        "--path",
+        "queries"
       ]
 
       switches = [
@@ -88,7 +94,10 @@ defmodule Mix.Tasks.Ecto.Gen.SchemaTest do
         no_associations: :boolean,
         module_prefix: :string,
         output_dir: :string,
-        dry_run: :boolean
+        dry_run: :boolean,
+        context: :string,
+        context_tables: :string,
+        path: :string
       ]
 
       {opts, _, _} = OptionParser.parse(args, switches: switches)
@@ -104,6 +113,75 @@ defmodule Mix.Tasks.Ecto.Gen.SchemaTest do
       assert opts[:module_prefix] == "Custom"
       assert opts[:output_dir] == "lib/custom"
       assert opts[:dry_run] == true
+      assert opts[:context] == "Accounts"
+      assert opts[:context_tables] == "users,profiles"
+      assert opts[:path] == "queries"
+    end
+
+    test "parses context options separately" do
+      args = [
+        "--repo",
+        "MyApp.Repo",
+        "--context",
+        "Blog",
+        "--context-tables",
+        "posts,comments,tags"
+      ]
+
+      switches = [
+        repo: :string,
+        context: :string,
+        context_tables: :string
+      ]
+
+      {opts, _, _} = OptionParser.parse(args, switches: switches)
+
+      assert opts[:repo] == "MyApp.Repo"
+      assert opts[:context] == "Blog"
+      assert opts[:context_tables] == "posts,comments,tags"
+    end
+
+    test "context-tables limits table generation" do
+      # This test verifies the parsing logic
+      # Actual filtering would be tested in integration tests
+      args = [
+        "--repo",
+        "MyApp.Repo",
+        "--context-tables",
+        "users,profiles"
+      ]
+
+      switches = [
+        repo: :string,
+        context_tables: :string
+      ]
+
+      {opts, _, _} = OptionParser.parse(args, switches: switches)
+
+      assert opts[:context_tables] == "users,profiles"
+      # When context_tables is specified, only those tables should be processed
+    end
+
+    test "path option works with context" do
+      args = [
+        "--repo",
+        "MyApp.Repo",
+        "--path",
+        "queries/reports",
+        "--context",
+        "Analytics"
+      ]
+
+      switches = [
+        repo: :string,
+        path: :string,
+        context: :string
+      ]
+
+      {opts, _, _} = OptionParser.parse(args, switches: switches)
+
+      assert opts[:path] == "queries/reports"
+      assert opts[:context] == "Analytics"
     end
   end
 end

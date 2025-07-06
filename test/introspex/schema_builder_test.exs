@@ -385,7 +385,9 @@ defmodule Introspex.SchemaBuilderTest do
 
       result = SchemaBuilder.build_schema(table_info, "MyApp.UserStats")
 
-      assert result =~ "@schema_source_type :view"
+      assert result =~
+               "# This is a view - queries will work but inserts/updates/deletes are not supported"
+
       assert result =~ "@primary_key false"
       assert result =~ "field :user_id, :binary_id"
       assert result =~ "field :posts_count, :integer"
@@ -425,7 +427,9 @@ defmodule Introspex.SchemaBuilderTest do
 
       result = SchemaBuilder.build_schema(table_info, "MyApp.CacheStats")
 
-      assert result =~ "@schema_source_type :materialized_view"
+      assert result =~
+               "# This is a materialized_view - queries will work but inserts/updates/deletes are not supported"
+
       assert result =~ "@primary_key false"
     end
 
@@ -1120,6 +1124,68 @@ defmodule Introspex.SchemaBuilderTest do
       assert result =~ "# field :category_names"
       assert result =~ "# field :attachments"
       assert result =~ "# field :metadata"
+    end
+
+    test "adds type: :id to belongs_to when foreign key is integer but schema uses binary_id" do
+      table_info = %{
+        table: %{name: "organizations", type: :table, comment: nil},
+        columns: [
+          %{
+            name: "id",
+            data_type: "uuid",
+            not_null: true,
+            default: "gen_random_uuid()",
+            comment: nil,
+            position: 1,
+            enum_values: nil
+          },
+          %{
+            name: "name",
+            data_type: "varchar",
+            not_null: true,
+            default: nil,
+            comment: nil,
+            position: 2,
+            enum_values: nil
+          },
+          %{
+            name: "role_id",
+            data_type: "integer",
+            not_null: true,
+            default: nil,
+            comment: nil,
+            position: 3,
+            enum_values: nil
+          }
+        ],
+        primary_keys: ["id"],
+        relationships: %{
+          belongs_to: [
+            %{
+              field: :role,
+              table: "roles",
+              foreign_key: :role_id,
+              references: :id,
+              on_update: :cascade,
+              on_delete: :cascade
+            }
+          ],
+          has_many: [],
+          many_to_many: []
+        },
+        unique_constraints: [],
+        check_constraints: [],
+        table_type: :table
+      }
+
+      result = SchemaBuilder.build_schema(table_info, "MyApp.Organization", binary_id: true)
+
+      # Should have binary_id as primary key type
+      assert result =~ "@primary_key {:id, :binary_id, autogenerate: false}"
+      assert result =~ "@foreign_key_type :binary_id"
+
+      # Should add type: :id to the belongs_to association
+      assert result =~ "belongs_to :role, Roles, type: :id"
     end
   end
 end
